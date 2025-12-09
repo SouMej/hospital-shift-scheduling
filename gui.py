@@ -10,7 +10,7 @@ def parse_shift_times(shift_name):
     """Simple time parser for shifts: Matin (08-14) and Garde (14-08 next day)."""
     mapping = {
         "Matin": (8, 14, False),
-        "Garde": (14, 8, True),  # wrap to next day
+        "Garde": (14, 8, True),  
     }
     return mapping.get(shift_name, (8, 16, False))
 
@@ -156,6 +156,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.candidates = {c["id"]:c.copy() for c in DEFAULT_CANDIDATES}
         self.avail = default_availability(DEFAULT_CANDIDATES)
         self.demand = DEMAND.copy()
+        self.assign_map = {}
 
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
@@ -181,7 +182,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.list_candidates = QtWidgets.QListWidget()
         left_layout.addWidget(self.list_candidates)
-        self.refresh_candidate_list()
+        # Fill list immediately (combo will be filled later)
+        self.refresh_candidate_list_items()
 
     
         form = QtWidgets.QFormLayout()
@@ -234,9 +236,35 @@ class MainWindow(QtWidgets.QMainWindow):
 
         planning_grp = QtWidgets.QGroupBox("Planification des quarts")
         planning_layout = QtWidgets.QVBoxLayout(planning_grp)
-        # Compact calendar view
+
+        self.plan_tabs = QtWidgets.QTabWidget()
+        self.plan_tabs.setTabPosition(QtWidgets.QTabWidget.North)
+
+        # Vue équipe
+        team_widget = QtWidgets.QWidget()
+        team_layout = QtWidgets.QVBoxLayout(team_widget)
         self.plan_view = WeekCalendarView(DAYS, SHIFTS)
-        planning_layout.addWidget(self.plan_view)
+        team_layout.addWidget(self.plan_view)
+        self.plan_tabs.addTab(team_widget, "Vue équipe")
+
+        # Vue personnelle
+        personal_widget = QtWidgets.QWidget()
+        personal_layout = QtWidgets.QVBoxLayout(personal_widget)
+        selector_layout = QtWidgets.QHBoxLayout()
+        selector_layout.addWidget(QtWidgets.QLabel("Personnel:"))
+        self.personal_combo = QtWidgets.QComboBox()
+        selector_layout.addWidget(self.personal_combo, 1)
+        selector_layout.addStretch()
+        personal_layout.addLayout(selector_layout)
+        self.personal_view = WeekCalendarView(DAYS, SHIFTS)
+        personal_layout.addWidget(self.personal_view)
+        self.plan_tabs.addTab(personal_widget, "Vue personnelle")
+
+        self.plan_tabs.currentChanged.connect(self.update_personal_view)
+        self.personal_combo.currentTextChanged.connect(self.update_personal_view)
+
+        planning_layout.addWidget(self.plan_tabs)
+
         # Keep table for export compatibility (hidden)
         self.table = QtWidgets.QTableWidget(len(DAYS), len(SHIFTS))
         self.table.setHorizontalHeaderLabels(SHIFTS)
@@ -273,6 +301,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         content.addWidget(right_bottom_widget, 1, 1)
 
+        # Fill personal combo after all widgets are created
+        self.refresh_candidate_list()
+
     def append_log(self, text):
         self.log_box.append(text)
 
@@ -283,13 +314,32 @@ class MainWindow(QtWidgets.QMainWindow):
         html = "<ul>" + "".join(f"<li>{m}</li>" for m in messages) + "</ul>"
         self.log_box.setHtml(html)
 
-    def refresh_candidate_list(self):
+    def refresh_candidate_list_items(self):
+        """Fill only the candidate list widget."""
         self.list_candidates.clear()
         for cid,c in sorted(self.candidates.items()):
             quals=[]
             if c["qual"].get("infirmier",0): quals.append("INF")
             if c["qual"].get("medecin",0): quals.append("MED")
             self.list_candidates.addItem(f"{cid} - {c['name']} ({','.join(quals)}) - cost={c['hire_cost']}")
+
+    def refresh_candidate_list(self):
+        """Refresh both list and combo box."""
+        self.refresh_candidate_list_items()
+        # update personal combo if it exists
+        if hasattr(self, 'personal_combo'):
+            current = self.personal_combo.currentText()
+            self.personal_combo.blockSignals(True)
+            self.personal_combo.clear()
+            for cid,c in sorted(self.candidates.items()):
+                self.personal_combo.addItem(c["name"], cid)
+            if self.personal_combo.count() > 0:
+                if current and any(self.personal_combo.itemText(i) == current for i in range(self.personal_combo.count())):
+                    self.personal_combo.setCurrentText(current)
+                else:
+                    self.personal_combo.setCurrentIndex(0)
+            self.personal_combo.blockSignals(False)
+            self.update_personal_view()
 
     def add_candidate(self):
         cid = self.input_id.text().strip()
@@ -351,9 +401,10 @@ class MainWindow(QtWidgets.QMainWindow):
             names=[next((emp for emp in candidates_list if emp["id"]==eid),{"name":eid})["name"] for eid in emps]
             self.table.setItem(r,c,QtWidgets.QTableWidgetItem(", ".join(names)))
             # fill calendar mapping
-        assign_map = {f"{d}_{s}":[next((emp for emp in candidates_list if emp["id"]==eid),{"name":eid})["name"] for eid in emps]
-                      for (d,s),emps in res["assigns"].items()}
-        self.plan_view.draw_assignments(assign_map)
+        self.assign_map = {f"{d}_{s}":[next((emp for emp in candidates_list if emp["id"]==eid),{"name":eid})["name"] for eid in emps]
+                           for (d,s),emps in res["assigns"].items()}
+        self.plan_view.draw_assignments(self.assign_map)
+        self.update_personal_view()
 
         self.hired_list.clear()
         for eid in res["hired"]:
@@ -374,3 +425,16 @@ class MainWindow(QtWidgets.QMainWindow):
         df=pd.DataFrame(rows)
         fname,_=QtWidgets.QFileDialog.getSaveFileName(self,"Enregistrer CSV","planning.csv","CSV Files (*.csv)")
         if fname: df.to_csv(fname,index=False)
+
+    def update_personal_view(self, *args):
+        """Refresh personal calendar when tab or selection changes."""
+        if not hasattr(self, 'plan_tabs') or not hasattr(self, 'personal_combo') or not hasattr(self, 'personal_view'):
+            return
+        if self.plan_tabs.currentIndex() != 1:
+            return
+        staff_name = self.personal_combo.currentText()
+        if not hasattr(self, 'assign_map') or not self.assign_map:
+            self.personal_view.clear_scene()
+            self.personal_view.draw_grid()
+            return
+        self.personal_view.draw_assignments(self.assign_map, staff_focus=staff_name)

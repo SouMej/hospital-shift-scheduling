@@ -108,7 +108,6 @@ class HiringScheduler:
                 "total_infirmiers":total_infirmiers,"total_medecins":total_medecins}
 
     def explain_iis(self, iis):
-        """Map IIS constraint names to human-readable French diagnostics."""
         msgs=[]
         for name in iis:
             parts = name.split("_")

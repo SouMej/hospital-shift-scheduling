@@ -7,7 +7,6 @@ from scheduler import HiringScheduler
 
 
 def parse_shift_times(shift_name):
-    """Simple time parser for shifts: Matin (08-14) and Garde (14-08 next day)."""
     mapping = {
         "Matin": (8, 14, False),
         "Garde": (14, 8, True),  
@@ -16,7 +15,6 @@ def parse_shift_times(shift_name):
 
 
 class WeekCalendarView(QGraphicsView):
-    """Compact weekly calendar to visualize assignments."""
 
     def __init__(self, days, periods, parent=None):
         super().__init__(parent)
@@ -111,7 +109,6 @@ class WeekCalendarView(QGraphicsView):
                 self.scene.addItem(txt)
                 rect.setToolTip(f"{text}\n{d} {p}: {int(start_h)}:00 - {int(end_h)}:00")
             else:
-                # not used here, but kept for completeness
                 y1 = self.top_margin + start_h * self.hour_height
                 h1 = (24.0 - start_h) * self.hour_height
                 rect1 = QGraphicsRectItem(x, y1, width, h1)
@@ -182,7 +179,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.list_candidates = QtWidgets.QListWidget()
         left_layout.addWidget(self.list_candidates)
-        # Fill list immediately (combo will be filled later)
         self.refresh_candidate_list_items()
 
     
@@ -265,7 +261,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         planning_layout.addWidget(self.plan_tabs)
 
-        # Keep table for export compatibility (hidden)
         self.table = QtWidgets.QTableWidget(len(DAYS), len(SHIFTS))
         self.table.setHorizontalHeaderLabels(SHIFTS)
         self.table.setVerticalHeaderLabels(DAYS)
@@ -301,7 +296,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         content.addWidget(right_bottom_widget, 1, 1)
 
-        # Fill personal combo after all widgets are created
         self.refresh_candidate_list()
 
     def append_log(self, text):
@@ -315,7 +309,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log_box.setHtml(html)
 
     def refresh_candidate_list_items(self):
-        """Fill only the candidate list widget."""
         self.list_candidates.clear()
         for cid,c in sorted(self.candidates.items()):
             quals=[]
@@ -324,9 +317,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.list_candidates.addItem(f"{cid} - {c['name']} ({','.join(quals)}) - cost={c['hire_cost']}")
 
     def refresh_candidate_list(self):
-        """Refresh both list and combo box."""
         self.refresh_candidate_list_items()
-        # update personal combo if it exists
         if hasattr(self, 'personal_combo'):
             current = self.personal_combo.currentText()
             self.personal_combo.blockSignals(True)
@@ -400,7 +391,6 @@ class MainWindow(QtWidgets.QMainWindow):
             r=DAYS.index(d); c=SHIFTS.index(s)
             names=[next((emp for emp in candidates_list if emp["id"]==eid),{"name":eid})["name"] for eid in emps]
             self.table.setItem(r,c,QtWidgets.QTableWidgetItem(", ".join(names)))
-            # fill calendar mapping
         self.assign_map = {f"{d}_{s}":[next((emp for emp in candidates_list if emp["id"]==eid),{"name":eid})["name"] for eid in emps]
                            for (d,s),emps in res["assigns"].items()}
         self.plan_view.draw_assignments(self.assign_map)
@@ -427,7 +417,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if fname: df.to_csv(fname,index=False)
 
     def update_personal_view(self, *args):
-        """Refresh personal calendar when tab or selection changes."""
         if not hasattr(self, 'plan_tabs') or not hasattr(self, 'personal_combo') or not hasattr(self, 'personal_view'):
             return
         if self.plan_tabs.currentIndex() != 1:
